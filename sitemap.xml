@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The sitemap protocol requires absolute URLs in <loc>, so these use a
+  placeholder. Before publishing, replace https://USERNAME.github.io/REPOSITORY/
+  below with the site's real GitHub Pages URL (find & replace is enough —
+  the path after it, e.g. "services.html", is already correct).
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://USERNAME.github.io/REPOSITORY/</loc><changefreq>monthly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://USERNAME.github.io/REPOSITORY/services.html</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://USERNAME.github.io/REPOSITORY/booking.html</loc><changefreq>monthly</changefreq><priority>0.9</priority></url>
+</urlset>

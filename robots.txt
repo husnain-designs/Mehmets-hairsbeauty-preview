@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+
+# Replace with the site's real published URL once it has one
+# (e.g. https://USERNAME.github.io/REPOSITORY/sitemap.xml) — most
+# crawlers accept a relative path here, but the spec calls for absolute.
+Sitemap: sitemap.xml
