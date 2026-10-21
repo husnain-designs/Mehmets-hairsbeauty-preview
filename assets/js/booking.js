@@ -1,9 +1,13 @@
 /* Mehmet's Hair & Beauty London — appointment request wizard.
  *
  * Four steps (services → day & time → details → review) then an outcome step.
- * Nothing is a confirmed booking: the request is POSTed to /api/booking-requests
- * and the salon confirms it separately. Success is only shown when the server
- * explicitly says it stored the request and echoes back a reference.
+ * Nothing is a confirmed booking: when a backend is configured (see API_BASE
+ * below), the request is POSTed to it and the salon confirms it separately.
+ * Success is only shown when the server explicitly says it stored the
+ * request and echoes back a reference. With no backend configured — the
+ * static GitHub Pages build this repo publishes — the wizard completes the
+ * request entirely client-side as a labelled demo and never transmits any
+ * entered detail anywhere.
  */
 (function () {
   'use strict';
@@ -27,6 +31,10 @@
   for (var m = 540; m <= 1080; m += 30) SLOTS.push(m);
   var GROUPS = [['Morning', 540, 690], ['Afternoon', 720, 990], ['Evening', 1020, 1080]];
 
+  /* Set this to the salon's real booking API origin (e.g. 'https://booking.example.com')
+     to enable live submission once a production backend exists. Left empty, there is
+     nothing to send to, so submit() never fetches and completes as a static demo. */
+  var API_BASE = '';
   var ENDPOINT = 'api/booking-requests';
   var MAX_SVCS = 8;
   var MIN_LEAD_MIN = 60;
@@ -59,6 +67,7 @@
     phoneOut:    document.querySelector('[data-phone-out]'),
     failMsg:     document.querySelector('[data-fail-msg]'),
     badgeLabel:  document.querySelector('[data-badge-label]'),
+    headingLead: document.querySelector('[data-heading-lead]'),
     doneLede:    document.querySelector('[data-done-lede]'),
     previewNote: document.querySelector('[data-preview-note]'),
     actions:     document.querySelector('[data-actions]'),
@@ -251,18 +260,11 @@
   }
 
   /* ------------------------------------------------------------- submit -- */
-  /* Same reference format the salon's server generates (server.py: _REF_ALPHABET),
-     so a preview build and a connected one are visually indistinguishable — this is
-     cosmetic only and never written anywhere. Excludes 0/O/1/I so a reference read
-     aloud over the phone can't be misheard. */
-  var REF_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  /* No backend exists to issue a real reference, so the demo result carries none —
+     see renderOutcome(), which omits the Reference row entirely when staticPreview
+     is set, rather than inventing one that looks genuine. */
   function staticPreviewResult(services) {
-    var bytes = new Uint8Array(6);
-    if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(bytes);
-    else for (var i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
-    var ref = 'MH-';
-    for (var j = 0; j < bytes.length; j++) ref += REF_ALPHABET[bytes[j] % REF_ALPHABET.length];
-    return { ok: true, reference: ref, services: services, staticPreview: true };
+    return { ok: true, services: services, staticPreview: true };
   }
 
   function submit() {
@@ -284,24 +286,13 @@
     }
 
     var services = state.svcs.slice();
-    var body = {
-      services: services,
-      date: state.date,
-      time: state.time,
-      name: fields.name.value.trim(),
-      phone: fields.phone.value.trim(),
-      email: fields.email.value.trim(),
-      notes: fields.notes.value.trim(),
-      website: fields.website.value
-    };
 
     state.sending = true;
     state.hint = '';
     render();
 
     var ctrl = 'AbortController' in window ? new AbortController() : null;
-    abortCtrl = ctrl;
-    var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 15000);
+    var timer;
 
     function finish(result) {
       clearTimeout(timer);
@@ -313,7 +304,30 @@
       stepChanged();
     }
 
-    fetch(ENDPOINT, {
+    /* No backend is configured (API_BASE is empty) — complete the demo locally after a
+       short delay so the "Sending…" state still shows, without ever constructing or
+       transmitting a request body containing the name, phone, email, notes, services,
+       date or time entered above. */
+    if (!API_BASE) {
+      timer = setTimeout(function () { finish(staticPreviewResult(services)); }, 450);
+      return;
+    }
+
+    var body = {
+      services: services,
+      date: state.date,
+      time: state.time,
+      name: fields.name.value.trim(),
+      phone: fields.phone.value.trim(),
+      email: fields.email.value.trim(),
+      notes: fields.notes.value.trim(),
+      website: fields.website.value
+    };
+
+    abortCtrl = ctrl;
+    timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 15000);
+
+    fetch(API_BASE + ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify(body),
@@ -327,14 +341,14 @@
       })
       .then(function (res) {
         var r = res.r, data = res.data;
-        /* The salon's booking API always answers /api/ with JSON, success or error — that's
-           how its own 404 route responds too. A non-JSON response only happens when something
-           other than that server answered the request, which on a static host (GitHub Pages,
-           a plain file server, this project opened straight from disk) means there is no
-           booking backend at this address at all. Rather than show a scary "wasn't sent"
-           failure on every attempt there, the wizard completes as a clearly-labelled preview:
-           see staticPreviewResult() and the data-preview-note copy in booking.html. */
-        if (!res.isJson) return finish(staticPreviewResult(services));
+        /* API_BASE is set, so a real backend is expected to answer here. The salon's
+           booking API always answers /api/ with JSON, success or error — that's how its
+           own 404 route responds too — so a non-JSON reply means that configured backend
+           is unreachable or broken, not that there's no backend at all (that case is
+           already handled above, before any fetch is made). Treat it as a send failure. */
+        if (!res.isJson) {
+          return finish({ ok: false, msg: 'The online booking system isn’t available right now, so the salon did not receive your request.' });
+        }
         // Only call it sent when the server confirms it stored the request.
         if (r.ok && data && data.status === 'received' && typeof data.reference === 'string' && data.reference) {
           var saved = Array.isArray(data.services) ? data.services : null;
@@ -531,6 +545,7 @@
     var res = state.result || {};
     if (res.ok) {
       if (el.badgeLabel) el.badgeLabel.textContent = res.staticPreview ? 'Preview — not sent' : 'Awaiting salon confirmation';
+      if (el.headingLead) el.headingLead.textContent = res.staticPreview ? 'Demo complete' : 'Request received';
       if (el.doneLede) el.doneLede.hidden = !!res.staticPreview;
       if (el.previewNote) el.previewNote.hidden = !res.staticPreview;
       el.firstName.textContent = fields.name.value.trim().split(/\s+/)[0] || '';
@@ -538,9 +553,10 @@
       var rows = [
         [state.svcs.length > 1 ? 'Services' : 'Service', (res.services || state.svcs).join(', ')],
         ['Requested day', day ? day.long : ''],
-        ['Preferred time', state.time || ''],
-        ['Reference', res.reference || '']
+        ['Preferred time', state.time || '']
       ];
+      /* No backend means no real reference was issued — see staticPreviewResult(). */
+      if (!res.staticPreview) rows.push(['Reference', res.reference || '']);
       el.doneGrid.textContent = '';
       rows.forEach(function (r) {
         var box = document.createElement('div');
@@ -590,7 +606,7 @@
 
     var sent = state.step === 5;
     el.cardStatus.textContent = sent
-      ? (res.ok ? 'Sent · awaiting salon confirmation' : 'Not sent')
+      ? (res.ok ? (res.staticPreview ? 'Preview — not sent' : 'Sent · awaiting salon confirmation') : 'Not sent')
       : (state.step === 4 ? 'Ready to send' : 'Draft · not sent yet');
     el.cardDot.classList.toggle('is-open', (sent && res.ok) || state.step === 4);
     el.cardDot.style.background = sent && !res.ok ? '#C46A5E' : '';
